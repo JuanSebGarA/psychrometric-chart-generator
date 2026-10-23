@@ -1,5 +1,7 @@
 import numpy as np
 from scipy.optimize import fsolve
+from scipy.integrate import quad
+from numpy.polynomial import Polynomial
 
 from psychro.config import (
     R, M_DRY_AIR, M_WATER, HOG, HOV, CP_G, CP_V
@@ -30,19 +32,21 @@ def Tad_objective(
     """
     Función objetivo para resolver implícitamente T_ad con fsolve.
     """
+    T1_val = float(T1[0]) if isinstance(T1, np.ndarray) else float(T1)
+
     xv = 1.0 / (1.0 + Mwv / (H1 * Mwg))
     xg = 1.0 - xv
 
     # Coeficientes Viriales y Derivadas a T1
-    Bgg, Bgv, Bvv = bgg(T1), bgv(T1), bvv(T1)
-    Cggg, Cggv, Cgvv, Cvvv = cggg(T1), cggv(T1), cgvv(T1), cvvv(T1)
+    Bgg, Bgv, Bvv = bgg(T1_val), bgv(T1_val), bvv(T1_val)
+    Cggg, Cggv, Cgvv, Cvvv = cggg(T1_val), cggv(T1_val), cgvv(T1_val), cvvv(T1_val)
 
-    dBgg_dT, dBgv_dT, dBvv_dT = dbgg_dT(T1), dbgv_dT(T1), dbvv_dT(T1)
-    dCggg_dT, dCggv_dT, dCgvv_dT, dCvvv_dT = dcggg_dT(T1), dcggv_dT(T1), dcgvv_dT(T1), dcvvv_dT(T1)
+    dBgg_dT, dBgv_dT, dBvv_dT = dbgg_dT(T1_val), dbgv_dT(T1_val), dbvv_dT(T1_val)
+    dCggg_dT, dCggv_dT, dCgvv_dT, dCvvv_dT = dcggg_dT(T1_val), dcggv_dT(T1_val), dcgvv_dT(T1_val), dcvvv_dT(T1_val)
 
-    # Integración de Cp usando polinomios
-    inteCpg = np.polyint(Cpg)(T1) - np.polyint(Cpg)(273.15) if isinstance(Cpg, np.ndarray) else 0.0
-    inteCpv = np.polyint(Cpv)(T1) - np.polyint(Cpv)(273.15) if isinstance(Cpv, np.ndarray) else 0.0
+    # Integración exacta de Cp usando quad y Polynomial
+    inteCpg, _ = quad(Polynomial(Cpg), 273.15, T1_val)
+    inteCpv, _ = quad(Polynomial(Cpv), 273.15, T1_val)
 
     # Coeficientes de Mezcla Viriales
     Bm = (xg**2) * Bgg + 2.0 * xg * xv * Bgv + (xv**2) * Bvv
@@ -51,19 +55,15 @@ def Tad_objective(
     dBm_dT = (xg**2) * dBgg_dT + 2.0 * xg * xv * dBgv_dT + (xv**2) * dBvv_dT
     dCm_dT = (xg**3) * dCggg_dT + 3.0 * (xg**2) * xv * dCggv_dT + 3.0 * xg * (xv**2) * dCgvv_dT + (xv**3) * dCvvv_dT
 
-    Cm_R = Cm[0] if isinstance(Cm, np.ndarray) else Cm
-    Bm_R = Bm[0] if isinstance(Bm, np.ndarray) else Bm
-    T1_R = T1[0] if isinstance(T1, np.ndarray) else T1
-
     # Raíces para determinar Volumen Molar (Vm)
-    V = np.roots([1.0, -(R_val * T1_R / P), -(R_val * T1_R / P * Bm_R), -(R_val * T1_R / P * Cm_R)])
+    V = np.roots([1.0, -(R_val * T1_val / P), -(R_val * T1_val / P * Bm), -(R_val * T1_val / P * Cm)])
     Vm = float(V[0].real)
 
-    # Entalpía de entrada
+    # Entalpia de entrada
     Hs1_ = (
         xg * (hog + inteCpg)
         + xv * (hov + inteCpv)
-        + R_val * T1 * 101325.0 / 1e6 * ((T1 * dBm_dT - Bm) * (1.0 / Vm) + (T1 / 2.0 * dCm_dT - Cm) * (1.0 / (Vm**2)))
+        + R_val * T1_val * 101325.0 / 1e6 * ((T1_val * dBm_dT - Bm) * (1.0 / Vm) + (T1_val / 2.0 * dCm_dT - Cm) * (1.0 / (Vm**2)))
     )
     Hs1 = Hs1_ / (xg * Mwg)
 
